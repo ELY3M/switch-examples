@@ -15,7 +15,7 @@
 // Note that in an actual app you may want to use ldn/sockets from another thread.
 
 // Replace this keydata with your own. See ldn.h SecurityConfig for the required size.
-static const u8 sec_data[0x10]={0x04, 0xb9, 0x9d, 0x4d, 0x58, 0xbc, 0x65, 0xe1, 0x77, 0x13, 0xc2, 0xb8, 0xd1, 0xb8, 0xec, 0xf6};
+static const u8 sec_passphrase[0x10]={0x04, 0xb9, 0x9d, 0x4d, 0x58, 0xbc, 0x65, 0xe1, 0x77, 0x13, 0xc2, 0xb8, 0xd1, 0xb8, 0xec, 0xf6};
 
 Result create_network(const LdnSecurityConfig *sec_config, const LdnUserConfig *user_config, const LdnNetworkConfig *netconfig, const void* advert, size_t advert_size) {
     Result rc=0;
@@ -83,7 +83,7 @@ void leave_network(void) {
     printf("ldnGetState(): 0x%x, %d\n", rc, state);
 
     if (R_SUCCEEDED(rc)) {
-        if (state==LdnState_AccessPointOpened || state==LdnState_AccessPointCreated) {
+        if (state==LdnState_AccessPoint || state==LdnState_AccessPointCreated) {
             if (state==LdnState_AccessPointCreated) {
                 rc = ldnDestroyNetwork();
                 printf("ldnDestroyNetwork(): 0x%x\n", rc);
@@ -92,7 +92,7 @@ void leave_network(void) {
             printf("ldnCloseAccessPoint(): 0x%x\n", rc);
         }
 
-        if (state==LdnState_StationOpened || state==LdnState_StationConnected) {
+        if (state==LdnState_Station || state==LdnState_StationConnected) {
             if (state==LdnState_StationConnected) {
                 rc = ldnDisconnect();
                 printf("ldnDisconnect(): 0x%x\n", rc);
@@ -141,7 +141,7 @@ int main(int argc, char **argv)
     static const char advert[] = "libnx ldn example";
 
     // Load the preselected-user nickname into user_config - you can use anything for the nickname if you want.
-    strncpy(user_config.nickname, "nickname", sizeof(user_config.nickname)); // Fallback nickname in case the below fails.
+    strncpy(user_config.user_name, "username", sizeof(user_config.user_name)-1); // Fallback username in case the below fails.
     rc = accountInitialize(AccountServiceType_Application);
     if (R_FAILED(rc)) {
         printf("accountInitialize() failed: 0x%x\n", rc);
@@ -173,35 +173,34 @@ int main(int argc, char **argv)
             }
 
             if (R_SUCCEEDED(rc)) {
-                strncpy(user_config.nickname, profilebase.nickname, sizeof(user_config.nickname));
-                user_config.nickname[sizeof(user_config.nickname)-1] = 0;
+                strncpy(user_config.user_name, profilebase.nickname, sizeof(user_config.user_name)-1);
+                user_config.user_name[sizeof(user_config.user_name)-1] = 0;
             }
         }
         accountProfileClose(&profile);
         accountExit();
     }
 
-    netconfig.local_communication_id = -1;
-    netconfig.participant_max = 8; // Adjust as needed.
-    netconfig.userdata_filter = 0x4248; // "HB", adjust this if you want.
+    netconfig.intent_id.local_communication_id = -1;
+    netconfig.intent_id.scene_id = 0x4248; // "HB", adjust this if you want.
+    netconfig.node_count_max = 8; // Adjust as needed.
     // For more netconfig fields, see ldn.h.
     // Set local_communication_version if you want to only allow devices on the network if this version value matches (and update the version passed to ldnConnect).
 
-    sec_config.type = 1;
-    sec_config.data_size = sizeof(sec_data);
-    memcpy(sec_config.data, sec_data, sizeof(sec_data));
+    sec_config.security_mode = LdnSecurityMode_Product;
+    sec_config.passphrase_size = sizeof(sec_passphrase);
+    memcpy(sec_config.passphrase, sec_passphrase, sizeof(sec_passphrase));
 
-    filter.local_communication_id = -1;
-    filter.userdata_filter = netconfig.userdata_filter;
-    filter.flags = LdnScanFilterFlags_LocalCommunicationId | LdnScanFilterFlags_UserData;
+    filter.network_id.intent_id = netconfig.intent_id;
+    filter.flags = LdnScanFilterFlag_IntentId;
 
     rc = ldnInitialize(LdnServiceType_User);
     printf("ldnInitialize(): 0x%x\n", rc);
 
     Event state_event={0};
     if (R_SUCCEEDED(rc)) {
-        rc = ldnAttachStateChangeEvent(&state_event);
-        printf("ldnAttachStateChangeEvent(): 0x%x\n", rc);
+        rc = ldnGetStateChangeEvent(&state_event);
+        printf("ldnGetStateChangeEvent(): 0x%x\n", rc);
     }
 
     if (R_SUCCEEDED(rc)) {
@@ -319,10 +318,10 @@ int main(int argc, char **argv)
 
         if (R_SUCCEEDED(rc) && R_SUCCEEDED(eventWait(&state_event, 0))) {
             LdnNodeLatestUpdate nodes[8]={0};
-            Result rc2 = ldnGetNetworkInfoLatestUpdate(&netinfo, nodes, 8);
-            printf("NetworkInfo was updated.\nldnGetNetworkInfoLatestUpdate(): 0x%x\n", rc2); // Errors can be ignored if currently not on a network.
+            Result rc2 = ldnGetNetworkInfoAndHistory(&netinfo, nodes, 8);
+            printf("NetworkInfo was updated.\nldnGetNetworkInfoAndHistory(): 0x%x\n", rc2); // Errors can be ignored if currently not on a network.
             if (R_SUCCEEDED(rc2)) {
-                for (u32 i=0; i<8; i++) printf("%u: %d\n", i, nodes[i].val); // If you want, you can run handling for netinfo.nodes[i] when val is non-zero.
+                for (u32 i=0; i<8; i++) printf("%u: %d\n", i, nodes[i].state_change); // If you want, you can run handling for netinfo.nodes[i] when state_change is non-zero.
             }
         }
 
